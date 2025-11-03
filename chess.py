@@ -1,4 +1,5 @@
 import pygame
+import copy
 
 pygame.init()
 
@@ -88,7 +89,7 @@ def draw_table(screen):
                 pygame.draw.rect(screen, white_color, pygame.Rect(col * square_size, row * square_size, square_size, square_size))
     load_pieces_on_table(screen)
 
-def is_valid_move(board, start_pos, end_pos, turn):
+def is_valid_move(board, start_pos, end_pos, turn, castling_state):
     start_row, start_col = start_pos
     end_row, end_col = end_pos
     piece = board[start_row][start_col]
@@ -96,19 +97,45 @@ def is_valid_move(board, start_pos, end_pos, turn):
     destination_piece = board[end_row][end_col]
     if destination_piece != "" and destination_piece[0] == turn:
         return False
+    move_shape = False
     if piece_type == "N":
-        return knight_move_valid(start_pos, end_pos)
-    if piece_type == "P":
-        return pawn_move_valid(board, start_pos, end_pos, turn)
-    if piece_type == "R":
-        return rook_move_valid(board, start_pos, end_pos)
-    if piece_type == "B":
-        return bishop_move_valid(board, start_pos, end_pos)
-    if piece_type == "Q":
-        return queen_move_valid(board, start_pos, end_pos)
-    if piece_type == "K":
-        return king_move_valid(board, start_pos, end_pos)
-    return False
+        move_shape = knight_move_valid(start_pos, end_pos)
+    elif piece_type == "P":
+        move_shape = pawn_move_valid(board, start_pos, end_pos, turn)
+    elif piece_type == "R":
+        move_shape = rook_move_valid(board, start_pos, end_pos)
+    elif piece_type == "B":
+        move_shape = bishop_move_valid(board, start_pos, end_pos)
+    elif piece_type == "Q":
+        move_shape = queen_move_valid(board, start_pos, end_pos)
+    elif piece_type == "K":
+        move_shape = king_move_valid(board, start_pos, end_pos, turn, castling_state)
+    if not move_shape:
+        return False
+    temp_board = [row[:] for row in board]
+    temp_board[end_row][end_col] = piece
+    temp_board[start_row][start_col] = ""
+    king_pos = None
+    if turn == "w":
+        king_piece = "wK"
+    else:
+        king_piece = "bK"
+    for r in range(rows):
+        for c in range(cols):
+            if temp_board[r][c] == king_piece:
+                king_pos = (r, c)
+                break
+        if king_pos:
+            break
+    if king_pos is None:
+        return False
+    if turn == "w":
+        enemy_color = 'b'
+    else:
+        enemy_color = 'w'
+    if is_square_attacked(temp_board, king_pos, enemy_color):
+        return False
+    return True
 
 def knight_move_valid(start_pos, end_pos):
     start_row, start_col = start_pos
@@ -187,7 +214,7 @@ def bishop_move_valid(board, start_pos, end_pos):
 def queen_move_valid(board, start_pos, end_pos):
     return bishop_move_valid(board, start_pos, end_pos) or rook_move_valid(board, start_pos, end_pos)
 
-def king_move_valid(board, start_pos, end_pos):
+def king_move_valid(board, start_pos, end_pos, turn, castling_state):
     start_row, start_col = start_pos
     end_row, end_col = end_pos
     abs_rows = abs(start_row - end_row)
@@ -196,13 +223,90 @@ def king_move_valid(board, start_pos, end_pos):
         if  abs_rows == 0 and abs_cols == 0:
             return False
         return True
-    # sa adaug castling mai tarziu
+    if abs_rows == 0 and abs_cols == 2:
+        if turn == 'w':
+            enemy_color = 'b'
+        else:
+            enemy_color = 'w'
+        if is_square_attacked(board, start_pos, enemy_color):
+            return False
+        if (turn == 'w' and castling_state['wK_moved']) or (turn == 'b' and castling_state['bK_moved']):
+            return False
+        if end_col > start_col: #short castle
+            rook_col = 7
+            if turn == 'w':
+                rook_key = "wR_moved_h1"
+            else:
+                rook_key = "bR_moved_h8"
+            path_squares = [(start_row, start_col + 1), (start_row, start_col + 2)]
+        else: #long castle
+            rook_col = 0
+            if turn == 'w':
+                rook_key = 'wR_moved_a1'
+            else:
+                rook_key = 'bR_moved_a8'
+            path_squares = [(start_row, start_col - 1), (start_row, start_col - 2)]
+            if board[start_row][start_col - 3] != "":
+                return False
+        if castling_state[rook_key]: #check if rook moved
+            return False
+        for square in path_squares:
+            if board[square[0]][square[1]] != "": #blocked path
+                return False
+            if is_square_attacked(board, square, enemy_color): #if in check
+                return False
+        return True
+    return False
+
+def pawn_attacking_diagonal(start_pos, end_pos, turn):
+    start_row, start_col = start_pos
+    end_row, end_col = end_pos
+    if turn == "w":
+        direction = 1
+    else:
+        direction = -1
+    diff_row = start_row - end_row
+    abs_cols = abs(start_col - end_col)
+    if diff_row == direction and abs_cols == 1:
+        return True
+    return False
+
+def is_square_attacked(board, check_square, attack_color):
+    end_pos = check_square
+    for r in range(rows):
+        for c in range(cols):
+            piece = board[r][c]
+            if piece != "" and piece[0] == attack_color:
+                start_pos = (r, c)
+                piece_type = piece[1]
+                if piece_type == "N":
+                    if knight_move_valid(start_pos, end_pos): return True
+                elif piece_type == "R":
+                    if rook_move_valid(board, start_pos, end_pos): return True
+                elif piece_type == "Q":
+                    if queen_move_valid(board, start_pos, end_pos): return True
+                elif piece_type == "B":
+                    if bishop_move_valid(board, start_pos, end_pos): return True
+                elif piece_type == "K":
+                    abs_rows = abs(start_pos[0] - end_pos[0])
+                    abs_cols = abs(start_pos[1] - end_pos[1])
+                    if abs_rows <= 1 and abs_cols <= 1: return True
+                elif piece_type == "P":
+                    if pawn_attacking_diagonal(start_pos, end_pos, attack_color): return True
     return False
 
 def main(screen):
     running = True
     square_selected = None
     turn = 'w'
+    castling_state = {
+        'wK_moved' : False,
+        'bK_moved' : False,
+        'wR_moved_a1' : False,
+        'wR_moved_h1' : False,
+        'bR_moved_a8' : False,
+        'bR_moved_h8' : False
+    }
 
     while running:
         for event in pygame.event.get():
@@ -224,14 +328,30 @@ def main(screen):
                     start_row, start_col = square_selected
                     end_row, end_col = row, col
 
-                    if is_valid_move(board, square_selected, (end_row, end_col), turn):
+                    if is_valid_move(board, square_selected, (end_row, end_col), turn, castling_state):
                         piece_to_move = board[start_row][start_col]
+                        if piece_to_move == 'wK': castling_state['wK_moved'] = True
+                        if piece_to_move == 'bK': castling_state['bK_moved'] = True
+                        if square_selected == (7, 0): castling_state['wR_moved_a1'] = True
+                        if square_selected == (7, 7): castling_state['wR_moved_h1'] = True
+                        if square_selected == (0, 0): castling_state['bR_moved_a8'] = True
+                        if square_selected == (0, 7): castling_state['bR_moved_h8'] = True
                         board[end_row][end_col] = piece_to_move
                         board[start_row][start_col] = ""
-                        if turn == "w":
-                            turn = "b"
+                        if piece_to_move[1] == 'K' and abs(start_col - end_col) == 2: #checking if it's castling
+                            if end_col > start_col: #short castle
+                                rook = board[start_row][7]
+                                board[start_row][5] = rook
+                                board[start_row][7] = ""
+                            else: #long castle
+                                rook = board[start_row][0]
+                                board[start_row][3] = rook
+                                board[start_row][0] = ""
+
+                        if turn == 'w':
+                            turn = 'b'
                         else:
-                            turn = "w"
+                            turn = 'w'
                         square_selected = None
                     else:
                         square_selected = None
