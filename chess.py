@@ -14,6 +14,7 @@ cols = 8
 line_width = 3
 square_size = width // cols
 images_size = (square_size, square_size)
+font = pygame.font.SysFont('comicsans', 30, True)
 
 screen = pygame.display.set_mode((width, height))
 pygame.display.set_caption('Chess Game / Engine')
@@ -89,7 +90,7 @@ def draw_table(screen):
                 pygame.draw.rect(screen, white_color, pygame.Rect(col * square_size, row * square_size, square_size, square_size))
     load_pieces_on_table(screen)
 
-def is_valid_move(board, start_pos, end_pos, turn, castling_state):
+def is_valid_move(board, start_pos, end_pos, turn, castling_state, en_passant):
     start_row, start_col = start_pos
     end_row, end_col = end_pos
     piece = board[start_row][start_col]
@@ -101,7 +102,7 @@ def is_valid_move(board, start_pos, end_pos, turn, castling_state):
     if piece_type == "N":
         move_shape = knight_move_valid(start_pos, end_pos)
     elif piece_type == "P":
-        move_shape = pawn_move_valid(board, start_pos, end_pos, turn)
+        move_shape = pawn_move_valid(board, start_pos, end_pos, turn, en_passant)
     elif piece_type == "R":
         move_shape = rook_move_valid(board, start_pos, end_pos)
     elif piece_type == "B":
@@ -147,7 +148,7 @@ def knight_move_valid(start_pos, end_pos):
         return True
     return False
 
-def pawn_move_valid(board, start_pos, end_pos, turn):
+def pawn_move_valid(board, start_pos, end_pos, turn, en_passant):
     start_row, start_col = start_pos
     end_row, end_col = end_pos
     destination_piece = board[end_row][end_col]
@@ -165,6 +166,9 @@ def pawn_move_valid(board, start_pos, end_pos, turn):
         destination_piece == "" and board[start_row - direction][start_col] == ""):
         return True
     if diff_row == direction and abs(diff_col) == 1 and destination_piece != "" and destination_piece[0] != turn:
+        return True
+    #checking if en passant is possible
+    if diff_row == direction and abs(diff_col) == 1 and destination_piece == "" and end_pos == en_passant:
         return True
     return False
 
@@ -295,6 +299,20 @@ def is_square_attacked(board, check_square, attack_color):
                     if pawn_attacking_diagonal(start_pos, end_pos, attack_color): return True
     return False
 
+def get_legal_moves(board, turn, castling_state, en_passant):
+    legal_moves = []
+    for row in range(rows):
+        for col in range(cols):
+            piece = board[row][col]
+            if piece != "" and piece[0] == turn:
+                start_pos = (row, col)
+                for end_row in range(rows):
+                    for end_col in range(cols):
+                        end_pos = (end_row, end_col)
+                        if is_valid_move(board, start_pos, end_pos, turn, castling_state, en_passant):
+                            legal_moves.append((start_pos, end_pos))
+    return legal_moves
+
 def main(screen):
     running = True
     square_selected = None
@@ -307,54 +325,95 @@ def main(screen):
         'bR_moved_a8' : False,
         'bR_moved_h8' : False
     }
+    en_passant = None
+    game_over = False
+    end_msg = ""
 
     while running:
+        if not game_over:
+            legal_moves = get_legal_moves(board, turn, castling_state, en_passant)
+            if len(legal_moves) == 0:
+                game_over = True
+                king_pos = None
+                if turn == 'w':
+                    king_piece = 'wK'
+                    enemy_color = 'b'
+                else:
+                    king_piece = 'bK'
+                    enemy_color = 'w'
+                for row in range(rows):
+                    for col in range(cols):
+                        if board[row][col] == king_piece:
+                            king_pos = (row, col)
+                            break
+                        if king_pos:
+                            break
+                if king_pos and is_square_attacked(board, king_pos, enemy_color):
+                    if turn == 'w':
+                        winner = "Black"
+                    else:
+                        winner = "White"
+                    end_msg = f"Checkmate: {winner} won!"
+                else:
+                    end_msg = "Stalemate!"
+                print(end_msg)
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
                 break
+            if not game_over:
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    pos = pygame.mouse.get_pos()
 
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                pos = pygame.mouse.get_pos()
+                    col = pos[0] // square_size
+                    row = pos[1] // square_size
 
-                col = pos[0] // square_size
-                row = pos[1] // square_size
-
-                if square_selected is None:
-                    piece = board[row][col]
-                    if piece != "" and piece[0] == turn:
-                        square_selected = (row, col)
-                else:
-                    start_row, start_col = square_selected
-                    end_row, end_col = row, col
-
-                    if is_valid_move(board, square_selected, (end_row, end_col), turn, castling_state):
-                        piece_to_move = board[start_row][start_col]
-                        if piece_to_move == 'wK': castling_state['wK_moved'] = True
-                        if piece_to_move == 'bK': castling_state['bK_moved'] = True
-                        if square_selected == (7, 0): castling_state['wR_moved_a1'] = True
-                        if square_selected == (7, 7): castling_state['wR_moved_h1'] = True
-                        if square_selected == (0, 0): castling_state['bR_moved_a8'] = True
-                        if square_selected == (0, 7): castling_state['bR_moved_h8'] = True
-                        board[end_row][end_col] = piece_to_move
-                        board[start_row][start_col] = ""
-                        if piece_to_move[1] == 'K' and abs(start_col - end_col) == 2: #checking if it's castling
-                            if end_col > start_col: #short castle
-                                rook = board[start_row][7]
-                                board[start_row][5] = rook
-                                board[start_row][7] = ""
-                            else: #long castle
-                                rook = board[start_row][0]
-                                board[start_row][3] = rook
-                                board[start_row][0] = ""
-
-                        if turn == 'w':
-                            turn = 'b'
-                        else:
-                            turn = 'w'
-                        square_selected = None
+                    if square_selected is None:
+                        piece = board[row][col]
+                        if piece != "" and piece[0] == turn:
+                            square_selected = (row, col)
                     else:
-                        square_selected = None
+                        start_row, start_col = square_selected
+                        end_row, end_col = row, col
+                        if is_valid_move(board, square_selected, (end_row, end_col), turn, castling_state, en_passant):
+                            piece_to_move = board[start_row][start_col]
+                            if piece_to_move == 'wK': castling_state['wK_moved'] = True
+                            if piece_to_move == 'bK': castling_state['bK_moved'] = True
+                            if square_selected == (7, 0): castling_state['wR_moved_a1'] = True
+                            if square_selected == (7, 7): castling_state['wR_moved_h1'] = True
+                            if square_selected == (0, 0): castling_state['bR_moved_a8'] = True
+                            if square_selected == (0, 7): castling_state['bR_moved_h8'] = True
+                            board[end_row][end_col] = piece_to_move
+                            board[start_row][start_col] = ""
+                            if piece_to_move[1] == "P" and (end_row, end_col) == en_passant:
+                                board[start_row][end_col] = ""
+                            if piece_to_move[1] == 'K' and abs(start_col - end_col) == 2: #checking if it's castling
+                                if end_col > start_col: #short castle
+                                    rook = board[start_row][7]
+                                    board[start_row][5] = rook
+                                    board[start_row][7] = ""
+                                else: #long castle
+                                    rook = board[start_row][0]
+                                    board[start_row][3] = rook
+                                    board[start_row][0] = ""
+                            if piece_to_move[1] == "P":  # checking for promoting to a queen/knight/rook/bishop
+                                if end_row == 0 and turn == 'w':
+                                    board[end_row][end_col] = "wQ"
+                                    pieces['wQ'] = white_queen
+                                elif end_row == 7 and turn == 'b':
+                                    board[end_row][end_col] = "bQ"
+                                    pieces['bQ'] = black_queen
+                            en_passant = None
+                            if piece_to_move[1] == "P" and abs(start_row - end_row) == 2:
+                                en_passant = ((start_row + end_row) // 2, start_col)
+                            if turn == 'w':
+                                turn = 'b'
+                            else:
+                                turn = 'w'
+                            square_selected = None
+                        else:
+                            square_selected = None
 
         draw_table(screen)
 
@@ -363,6 +422,14 @@ def main(screen):
             transparent_surface = pygame.Surface((square_size, square_size), pygame.SRCALPHA)
             transparent_surface.fill(highlight_color)
             screen.blit(transparent_surface, (col * square_size, row * square_size))
+
+        if game_over:
+            overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+            overlay.fill((50, 50, 50, 100))
+            screen.blit(overlay, (0, 0))
+            msg_surface = font.render(end_msg, True, white_color)
+            msg_rect = msg_surface.get_rect(center = (width // 2, height // 2))
+            screen.blit(msg_surface, msg_rect)
 
         pygame.display.update()
 
