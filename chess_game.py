@@ -1,7 +1,10 @@
 import pygame
 from button import Button
 
+
 width = 800
+eval_bar_width = 60
+total_width = width + eval_bar_width
 height = 800
 rows = 8
 cols = 8
@@ -17,7 +20,7 @@ def start_game_loop(screen, game_mode = "player"):
     square_size = width // cols
     images_size = (square_size, square_size)
     font = pygame.font.SysFont('comicsans', 30, True)
-    font_menu = pygame.font.SysFont('comicsans', 60, True)
+    font_menu = pygame.font.SysFont('comicsans', 35, True)
 
     #screen = pygame.display.set_mode((width, height))
     pygame.display.set_caption('Chess Game / Engine')
@@ -330,9 +333,127 @@ def start_game_loop(screen, game_mode = "player"):
     en_passant = None
     game_over = False
     end_msg = ""
-    back_button = Button(image = None, pos = ((width // 2, height // 2 + 100)),
+    back_button = Button(image = None, pos = (width // 2, height // 2 + 100),
                          text_input = "Back to main menu", font = font_menu,
                          base_color = "White", hovering_color = "Green")
+    pieces_score = {
+        'P' : 100,
+        'N' : 320,
+        'B' : 330,
+        'R' : 500,
+        'Q' : 900,
+        'K' : 20000,
+        'p' : -100,
+        'n' : -320,
+        'b' : -330,
+        'r' : -500,
+        'q' : -900,
+        'k' : -20000
+    }
+
+    pawn_table = [
+        [0, 0, 0, 0, 0, 0, 0, 0],
+        [50, 50, 50, 50, 50, 50, 50, 50],
+        [10, 10, 20, 30, 30, 20, 10, 10],
+        [5, 5, 10, 25, 25, 10, 5, 5],
+        [0, 0, 0, 20, 20, 0, 0, 0],
+        [5, -5, -10, 0, 0, -10, -5, 5],
+        [5, 10, 10, -20, -20, 10, 10, 5],
+        [0, 0, 0, 0, 0, 0, 0, 0]
+    ]
+    knight_table = [
+        [-50, -40, -30, -30, -30, -30, -40, -50],
+        [-40, -20, 0, 0, 0, 0, -20, -40],
+        [-30, 0, 10, 15, 15, 10, 0, -30],
+        [-30, 5, 15, 20, 20, 15, 5, -30],
+        [-30, 0, 15, 20, 20, 15, 0, -30],
+        [-30, 5, 10, 15, 15, 10, 5, -30],
+        [-40, -20,  0,  5,  5,  0, -20, -40],
+        [-50, -40, -30, -30, -30, -30, -40, -50]
+    ]
+    bishop_table = [
+        [-20, -10, -10, -10, -10, -10, -10, -20],
+        [-10, 0, 0, 0, 0, 0, 0, -10],
+        [-10, 0, 5, 10, 10, 5, 0, -10],
+        [-10, 5, 5, 10, 10, 5, 5, -10],
+        [-10, 0, 10, 10, 10, 10, 0, -10],
+        [-10, 10, 10, 10, 10, 10, 10, -10],
+        [-10, 5, 0, 0, 0, 0, 5, -10],
+        [-20, -10, -10, -10, -10, -10, -10, -20]
+    ]
+    rook_table = [
+        [0, 0, 0, 0, 0, 0, 0, 0],
+        [5, 10, 10, 10, 10, 10, 10, 5],
+        [-5, 0, 0, 0, 0, 0, 0, -5],
+        [-5, 0, 0, 0, 0, 0, 0, -5],
+        [-5, 0, 0, 0, 0, 0, 0, -5],
+        [-5, 0, 0, 0, 0, 0, 0, -5],
+        [-5, 0, 0, 0, 0, 0, 0, -5],
+        [0, 0, 0, 5, 5, 0, 0, 0]
+    ]
+    queen_table = [
+        [-20, -10, -10, -5, -5, -10, -10, -20],
+        [-10, 0, 0, 0, 0, 0, 0, -10],
+        [-10, 0, 5, 5, 5, 5, 0, -10],
+        [-5, 0, 5, 5, 5, 5, 0, -5],
+        [0, 0, 5, 5, 5, 5, 0, -5],
+        [-10, 5, 5, 5, 5, 5, 0, -10],
+        [-10, 0, 5, 0, 0, 0, 0, -10],
+        [-20, -10, -10, -5, -5, -10, -10, -20]
+    ]
+    king_table = [
+        [-30, -40, -40, -50, -50, -40, -40, -30],
+        [-30, -40, -40, -50, -50, -40, -40, -30],
+        [-30, -40, -40, -50, -50, -40, -40, -30],
+        [-30, -40, -40, -50, -50, -40, -40, -30],
+        [-20, -30, -30, -40, -40, -30, -30, -20],
+        [-10, -20, -20, -20, -20, -20, -20, -10],
+        [20, 20, 0, 0, 0, 0, 20, 20],
+        [20, 30, 10, 0, 0, 10, 30, 20]
+    ]
+    #calculates the score of the table (positive - white is winning, negative - black is winning)
+    def eval_board(board_status):
+        total_score = 0
+        for row in range(rows):
+            for col in range(cols):
+                piece = board_status[row][col]
+                if piece != "":
+                    total_score += pieces_score.get(piece, 0)
+                    if piece == "wP":
+                        total_score += pawn_table[row][col]
+                    elif piece == "bP":
+                        total_score -= pawn_table[7 - row][col]
+                    elif piece == "wN":
+                        total_score += knight_table[row][col]
+                    elif piece == "bN":
+                        total_score -= knight_table[7 - row][col]
+                    elif piece == "wB":
+                        total_score += bishop_table[row][col]
+                    elif piece == "bB":
+                        total_score -= bishop_table[7 - row][col]
+                    elif piece == "wR":
+                        total_score += rook_table[row][col]
+                    elif piece == "bR":
+                        total_score -= rook_table[7 - row][col]
+                    elif piece == "wQ":
+                        total_score += queen_table[row][col]
+                    elif piece == "bQ":
+                        total_score -= knight_table[7 - row][col]
+                    elif piece == "wK":
+                        total_score += king_table[row][col]
+                    elif piece == "bK":
+                        total_score -= knight_table[7 - row][col]
+        return total_score
+
+    def draw_eval_bar(screen, curr_score):
+        bar_x = width
+        bar_width = eval_bar_width
+        block_score = max(min(curr_score, 1000), -1000)
+        score_percentage = (block_score + 1000) / 2000
+        white_height = height * score_percentage
+        black_height = height - white_height
+        pygame.draw.rect(screen, black_color, (bar_x, 0, bar_width, black_height))
+        pygame.draw.rect(screen, white_color, (bar_x, black_height, bar_width, white_height))
 
     while running:
         ai_turn = (game_mode == "ai" and turn == 'b')
@@ -427,6 +548,8 @@ def start_game_loop(screen, game_mode = "player"):
         if not game_over and game_mode == "ai" and turn == 'b':
             pass
         draw_table(screen)
+        curr_score = eval_board(board)
+        draw_eval_bar(screen, curr_score)
 
         if square_selected is not None:
             row, col = square_selected

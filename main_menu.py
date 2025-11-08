@@ -1,11 +1,12 @@
 import sys
 import pygame
-from Tools.scripts.parse_html5_entities import write_items
 
 import chess_game
 from button import Button
 
-width = 800
+board_width = 800
+eval_bar_width = 20
+width = board_width + eval_bar_width
 height = 800
 
 pygame.init()
