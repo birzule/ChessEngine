@@ -1,5 +1,6 @@
 import pygame
 from button import Button
+import random
 
 
 width = 800
@@ -411,6 +412,7 @@ def start_game_loop(screen, game_mode = "player"):
         [20, 20, 0, 0, 0, 0, 20, 20],
         [20, 30, 10, 0, 0, 10, 30, 20]
     ]
+
     #calculates the score of the table (positive - white is winning, negative - black is winning)
     def eval_board(board_status):
         total_score = 0
@@ -438,11 +440,11 @@ def start_game_loop(screen, game_mode = "player"):
                     elif piece == "wQ":
                         total_score += queen_table[row][col]
                     elif piece == "bQ":
-                        total_score -= knight_table[7 - row][col]
+                        total_score -= queen_table[7 - row][col]
                     elif piece == "wK":
                         total_score += king_table[row][col]
                     elif piece == "bK":
-                        total_score -= knight_table[7 - row][col]
+                        total_score -= king_table[7 - row][col]
         return total_score
 
     def draw_eval_bar(screen, curr_score):
@@ -454,6 +456,92 @@ def start_game_loop(screen, game_mode = "player"):
         black_height = height - white_height
         pygame.draw.rect(screen, black_color, (bar_x, 0, bar_width, black_height))
         pygame.draw.rect(screen, white_color, (bar_x, black_height, bar_width, white_height))
+
+    def minimax(board_state, depth, alpha, beta, maximizing_player):
+        if depth == 0:
+            return eval_board(board_state)
+        if maximizing_player:
+            curr_turn = 'w'
+        else:
+            curr_turn = 'b'
+        legal_moves = get_legal_moves(board_state, curr_turn, castling_state, en_passant)
+        if len(legal_moves) == 0:
+            king_pos = None
+            if maximizing_player:
+                king_piece = "wK"
+                enemy_color = 'b'
+            else:
+                king_piece = "bK"
+                enemy_color = 'w'
+            for row in range(rows):
+                for col in range(cols):
+                    if board_state[row][col] == king_piece:
+                        king_pos = (row, col)
+                        break
+                    if king_pos:
+                        break
+            if king_pos and is_square_attacked(board_state, king_pos, enemy_color):
+                if maximizing_player:
+                    return -float('inf')
+                else:
+                    return float('inf')
+            else:
+                return 0
+        if maximizing_player:
+            best_score = -float('inf')
+            for move in legal_moves:
+                temp_board = [row[:] for row in board_state]
+                start_pos, end_pos = move
+                piece = temp_board[start_pos[0]][start_pos[1]]
+                temp_board[end_pos[0]][end_pos[1]] = piece
+                temp_board[start_pos[0]][start_pos[1]] = ""
+                score = minimax(temp_board, depth - 1, alpha, beta, False)
+                best_score = max(best_score, score)
+                alpha = max(alpha, best_score)
+                if beta <= alpha:
+                    break
+            return best_score
+        else:
+            best_score = float('inf')
+            for move in legal_moves:
+                temp_board = [row[:] for row in board_state]
+                start_pos, end_pos = move
+                piece = temp_board[start_pos[0]][start_pos[1]]
+                temp_board[end_pos[0]][end_pos[1]] = piece
+                temp_board[start_pos[0]][start_pos[1]] = ""
+                score = minimax(temp_board, depth - 1, alpha, beta, True)
+                best_score = min(best_score, score)
+                beta = min(beta, best_score)
+                if beta <= alpha:
+                    break
+            return best_score
+
+    def find_best_move(board_state, turn, castling_state, en_passant):
+        legal_moves = get_legal_moves(board_state, turn, castling_state, en_passant)
+        random.shuffle(legal_moves)
+        best_move = None
+        depth = 4
+        maximizing_player = (turn == 'b')
+        if maximizing_player:
+            best_score = -float('inf')
+        else:
+            best_score = float('inf')
+        for move in legal_moves:
+            temp_board = [row[:] for row in board_state]
+            start_pos, end_pos = move
+            piece = temp_board[start_pos[0]][start_pos[1]]
+            temp_board[end_pos[0]][end_pos[1]] = piece
+            temp_board[start_pos[0]][start_pos[1]] = ""
+            score = minimax(temp_board, depth - 1, -float('inf'), float('inf'), not maximizing_player)
+            if maximizing_player:
+                if score > best_score:
+                    best_score = score
+                    best_move = move
+            else:
+                if score < best_score:
+                    best_score = score
+                    best_move = move
+        return best_move
 
     while running:
         ai_turn = (game_mode == "ai" and turn == 'b')
@@ -546,7 +634,42 @@ def start_game_loop(screen, game_mode = "player"):
                             square_selected = None
 
         if not game_over and game_mode == "ai" and turn == 'b':
-            pass
+            best_move = find_best_move(board, turn, castling_state, en_passant)
+            if best_move:
+                start_row, start_col = best_move[0]
+                end_row, end_col = best_move[1]
+                square_selected = best_move[0]
+                piece_to_move = board[start_row][start_col]
+                if piece_to_move == 'wK': castling_state['wK_moved'] = True
+                if piece_to_move == 'bK': castling_state['bK_moved'] = True
+                if square_selected == (7, 0): castling_state['wR_moved_a1'] = True
+                if square_selected == (7, 7): castling_state['wR_moved_h1'] = True
+                if square_selected == (0, 0): castling_state['bR_moved_a8'] = True
+                if square_selected == (0, 7): castling_state['bR_moved_h8'] = True
+                board[end_row][end_col] = piece_to_move
+                board[start_row][start_col] = ""
+                if piece_to_move[1] == "P" and (end_row, end_col) == en_passant:
+                    board[start_row][end_col] = ""
+                if piece_to_move[1] == 'K' and abs(start_col - end_col) == 2:
+                    if end_col > start_col:
+                        rook = board[start_row][7]
+                        board[start_row][5] = rook
+                        board[start_row][7] = ""
+                    else:
+                        rook = board[start_row][0]
+                        board[start_row][3] = rook
+                        board[start_row][0] = ""
+                if piece_to_move[1] == "P":
+                    if end_row == 0 and turn == 'w':
+                        board[end_row][end_col] = "wQ"
+                    elif end_row == 7 and turn == 'b':
+                        board[end_row][end_col] = "bQ"
+                en_passant = None
+                if piece_to_move[1] == "P" and abs(start_row - end_row) == 2:
+                    en_passant = ((start_row + end_row) // 2, start_col)
+                turn = 'w'
+                square_selected = None
+
         draw_table(screen)
         curr_score = eval_board(board)
         draw_eval_bar(screen, curr_score)
